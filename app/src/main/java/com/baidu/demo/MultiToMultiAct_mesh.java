@@ -375,8 +375,8 @@ public class MultiToMultiAct_mesh extends AppCompatActivity implements View.OnCl
         iceServers = new LinkedList<>();
         iceServers.add(new PeerConnection.IceServer("turn:139.199.3.44:3478", "hjm", "123456"));
         iceServers.add(new PeerConnection.IceServer("stun:139.199.3.44:3478", "hjm", "123456"));
-//        PeerConnection.IceServer.Builder turnBuilder = PeerConnection.IceServer.builder("turn:139.199.3.44:3478").setHostname("hjm").setPassword("123456");
-//        PeerConnection.IceServer.Builder stunBuilder = PeerConnection.IceServer.builder("stun:139.199.3.44:3478").setHostname("hjm").setPassword("123456");
+//        PeerConnection.IceServer.Builder turnBuilder = PeerConnection.IceServer.builder("turn:193.112.215.135:3478").setHostname("hjm").setPassword("123456");
+//        PeerConnection.IceServer.Builder stunBuilder = PeerConnection.IceServer.builder("stun:193.112.215.135:3478").setHostname("hjm").setPassword("123456");
         iceServers.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer());
 
         pcConstraints = new MediaConstraints();
