@@ -18,6 +18,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
 
+
     <LinearLayout
         android:id="@+id/charttools_layout"
         android:layout_width="match_parent"
@@ -26,7 +27,6 @@
         android:gravity="center"
         android:orientation="horizontal"
         android:padding="30dp">
-
 <!--        <EditText-->
 <!--            android:id="@+id/room_id_et"-->
 <!--            android:layout_width="wrap_content"-->
@@ -56,6 +56,17 @@
 <!--            android:background="@color/permissionColorWhite"-->
 <!--            android:textColor="@android:color/black"-->
 <!--            android:textSize="12sp"/>-->
+        <EditText
+            android:id="@+id/send_msg_et"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="消息（预留）"
+            android:background="@color/permissionColorWhite"
+            android:textColor="@android:color/black"
+            android:textSize="12sp"
+            android:drawablePadding="5dp"
+            android:padding="10dp" />
+
         <Button
             android:id="@+id/leave_room_bt"
             android:layout_width="wrap_content"
@@ -67,6 +78,16 @@
             android:textColor="@android:color/black"
             android:textSize="12sp"/>
 
+        <Button
+            android:id="@+id/send_msg_bt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:drawablePadding="5dp"
+            android:padding="10dp"
+            android:text="发送信息"
+            android:background="@color/permissionColorWhite"
+            android:textColor="@android:color/black"
+            android:textSize="12sp"/>
         <TextView
             android:id="@+id/switch_camera_tv"
             android:layout_width="wrap_content"

@@ -30,6 +30,8 @@ import org.webrtc.EglBase;
 import org.webrtc.IceCandidate;
 import org.webrtc.MediaConstraints;
 import org.webrtc.MediaStream;
+import org.webrtc.NetworkMonitor;
+import org.webrtc.NetworkMonitorAutoDetect;
 import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
 import org.webrtc.RendererCommon;
@@ -42,6 +44,7 @@ import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
 
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -61,6 +64,8 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
     private TextView loundSperaker;
     private String roomId;
     private Button leaveRoom;
+    private Button sendText;
+    private EditText msgEdtText;
 
     private SurfaceViewRenderer localView;
     private SurfaceViewRenderer remoteView;
@@ -82,6 +87,8 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
     private boolean isOffer = false;
     private VideoRenderer mRemoteVideoRenderer;
     private VideoRenderer mlocalVideoRenderer;
+    private DataChannel mDataChannel;
+    private ArrayList<IceCandidate> candidates = new ArrayList<>();
 
 
     @Override
@@ -127,6 +134,8 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
     }
 
     private void init() {
+//        NetworkMonitor networkMonitor = new NetworkMonitor();无法直接获取
+//        NetworkMonitor networkMonitor = NetworkMonitor.getInstance();
         roomId = getIntent().getStringExtra("roomId");
 
         //初始化PeerConnectionFactory
@@ -149,7 +158,6 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
         mVideoTrack = mPeerConnectionFactory.createVideoTrack("videtrack", videoSource);
 
         //设置视频画质 i:width i1 :height i2:fps
-
         mVideoCapturer.startCapture(720, 1280, 30);
 
         AudioSource audioSource = mPeerConnectionFactory.createAudioSource(new MediaConstraints());
@@ -167,16 +175,8 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
         try {
 //            mSocket = IO.socket("http://172.16.0.10:3000");
             mSocket = IO.socket("http://139.199.3.44:3000");
+            // 第三方的ip+端口号（信令服务器）
 //             mSocket = IO.socket("http://139.199.3.44:3000");
-            // for test
-//            mSocket = IO.socket("http://599607ab.ngrok.io");
-//            mSocket = IO.socket("http://127.0.0.1:8080");
-//            mSocket = IO.socket("http://localhost:8080");
-//            mSocket = IO.socket("http://113.195.77.203:8080");
-//            mSocket = IO.socket("http://192.168.1.103:8080");
-//             Toast.makeText(OneToOneAVAct.this,
-//                     String.valueOf(mSocket.connected()), Toast.LENGTH_SHORT).show();
-//            Toast.makeText(OneToOneAVAct.this, mSocket == null ? null : mSocket.toString(), Toast.LENGTH_SHORT).show();
         } catch (URISyntaxException e) {
             e.printStackTrace();
         }
@@ -184,14 +184,20 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
         mSocket.on("joined", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-                String roomName = (String) args[0];
+                String roomName = (String)
+                        args[0];
                 String userId = (String) args[1];
                 Log.i(TAG, "room name is:" + roomName + ", and user id is:" + userId);
             }
         }).on("full", new Emitter.Listener() {
             @Override
             public void call(Object... args) {
-                Toast.makeText(OneToOneAVAct.this, "房间已经满人", Toast.LENGTH_SHORT).show();
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(OneToOneAVAct.this, "房间已经满人", Toast.LENGTH_SHORT).show();
+                    }
+                });
             }
         });
 
@@ -204,6 +210,9 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
                 if (mPeer == null) {
                     mPeer = new Peer();
                 }
+                // peerconnection, + addStream
+                // peerConnection.Observer
+                isOffer = true;
                 mPeer.peerConnection.createOffer(mPeer, sdpConstraints);
                 // 创建offer成功后回调了setLocalDescription,发送SDP (type, sdp)
             }
@@ -212,7 +221,6 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
             // createAns setRemoteSdp，回传sdp
             @Override
             public void call(Object... args) {
-                Log.i(TAG, "receive SdpInfo");
                 // 如果收到对方发来的sdp(type,sdp)，并且与己方远程sdp不一致，那么设置并且回传sdp
                 // json数据解析
                 JSONObject jsonObject = (JSONObject) args[0];
@@ -228,7 +236,10 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
                 } catch (JSONException e) {
                     e.printStackTrace();
                 }
+                // A -> local(sdp) , offer sdp , remote(sdp)
+                // B -> remote(sdp), createAns() -> local(sdp)
 
+                // 如果是offer过的，收到对方的offer，setRemotedescription可以更新配置，启动rollback将sdp交换
                 if (isOffer) {
                     mPeer.peerConnection.setRemoteDescription(mPeer, new SessionDescription(
                             SessionDescription.Type.fromCanonicalForm(canonicalForm), remoteSdpDescription
@@ -241,6 +252,29 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
                     mPeer.peerConnection.createAnswer(mPeer, sdpConstraints);
                     Log.i(TAG, "creataAns");
                 }
+
+                NetworkMonitor.NetworkObserver observer = new NetworkMonitor.NetworkObserver() {
+                    @Override
+                    public void onConnectionTypeChanged(NetworkMonitorAutoDetect.ConnectionType connectionType) {
+                        if (connectionType.equals(NetworkMonitorAutoDetect.ConnectionType.CONNECTION_NONE)) {
+                            IceCandidate[] iceCandidates = new IceCandidate[candidates.size()];
+                            for(int i = 0; i < candidates.size(); i++) {
+                                Log.i(TAG, "iceServers test remove:" + String.valueOf(candidates.get(i)));
+
+                                iceCandidates[i] = candidates.get(i);
+                            }
+                            mPeer.peerConnection.removeIceCandidates(iceCandidates);
+
+                            for(int i = 0; i < candidates.size(); i++) {
+                                Log.i(TAG, "iceServers test:" + String.valueOf(candidates.get(i)));
+                                mPeer.peerConnection.addIceCandidate(candidates.get(i));
+                            }
+                       }
+                        Log.i(TAG, "conn type change conn change");
+                    }
+                };
+                // 我选择在接收到SdpInfo之后进行监听网络
+                NetworkMonitor.addNetworkObserver(observer);
             }
         }).on("IceInfo", new Emitter.Listener() {
             @Override
@@ -255,6 +289,7 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
                             jsonObject.getInt("label"),
                             jsonObject.getString("candidate")
                     );
+                    candidates.add(candidate);
                     mPeer.peerConnection.addIceCandidate(candidate);
                 } catch (JSONException e) {
                     e.printStackTrace();
@@ -294,11 +329,10 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
 
     private void initConstraints() {
         iceServers = new LinkedList<>();
-//        iceServers.add(new PeerConnection.IceServer("turn:139.199.3.44:3478", "hjm", "123456"));
-//        iceServers.add(new PeerConnection.IceServer("stun:139.199.3.44:3478", "hjm", "123456"));
+        iceServers.add(new PeerConnection.IceServer("turn:139.199.3.44:3478", "hjm", "123456"));
+        iceServers.add(new PeerConnection.IceServer("stun:139.199.3.44:3478", "hjm", "123456"));
         PeerConnection.IceServer.Builder turnBuilder = PeerConnection.IceServer.builder("turn:139.199.3.44:3478").setHostname("hjm").setPassword("123456");
         PeerConnection.IceServer.Builder stunBuilder = PeerConnection.IceServer.builder("stun:139.199.3.44:3478").setHostname("hjm").setPassword("123456");
-        iceServers.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer());
 
         pcConstraints = new MediaConstraints();
         pcConstraints.optional.add(new MediaConstraints.KeyValuePair("DtlsSrtpKeyAgreement", "true"));
@@ -348,10 +382,14 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
         switcCamera = findViewById(R.id.switch_camera_tv);
         loundSperaker = findViewById(R.id.loundspeaker_tv);
         leaveRoom = findViewById(R.id.leave_room_bt);
+        sendText = findViewById(R.id.send_msg_bt);
+        msgEdtText = findViewById(R.id.send_msg_et);
 
         leaveRoom.setOnClickListener(this);
         switcCamera.setOnClickListener(this);
         loundSperaker.setOnClickListener(this);
+        sendText.setOnClickListener(this);
+        sendText.setOnClickListener(this);
 
         localView = findViewById(R.id.localVideoView);
         remoteView = findViewById(R.id.remoteVideoView);
@@ -420,11 +458,13 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
 
         @Override
         public void onSignalingChange(PeerConnection.SignalingState signalingState) {
-
+            Log.i(TAG, "signaling change switch:" + signalingState);
         }
 
         @Override
         public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {
+            // 重新建立连接，其实
+            Log.i(TAG, "onIceCandidate change switch:" + iceConnectionState);
             if (iceConnectionState == PeerConnection.IceConnectionState.DISCONNECTED) {
                 remoteVideoTrack.dispose();
                 remoteView.clearImage();
@@ -441,16 +481,25 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
 
         @Override
         public void onIceConnectionReceivingChange(boolean b) {
-
+            Log.i(TAG, "ice conn change switch" + b);
         }
 
         @Override
         public void onIceGatheringChange(PeerConnection.IceGatheringState iceGatheringState) {
-
+            Log.i(TAG, "ice gather change switch");
         }
 
+        // coturn -> A  : onicecandidate()
+        // A -> SigServer : iceInfo
+        // B -> peerconnection.add(a_candidates)
+
+        // coturn -> B : onIceCandidate()
+        // B -> Sigserver : iceInfo
+        // SigServer -> A : iceInfo
+        // A -> peerConnec.add(candidate)
         @Override
         public void onIceCandidate(IceCandidate iceCandidate) {
+            Log.i(TAG, "onIcecandidate: change switch");
             try {
                 JSONObject jsonObject = new JSONObject();
                 jsonObject.put("roomId", roomId);
@@ -466,12 +515,13 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
 
         @Override
         public void onIceCandidatesRemoved(IceCandidate[] iceCandidates) {
-
+            Log.i(TAG, "ice remove change switch");
         }
 
+        // pc_A.addStream(mediaStream)
         @Override
         public void onAddStream(MediaStream mediaStream) {
-            Log.i(TAG, "remoted view added" + mediaStream.toString());
+            Log.i(TAG, "remoted view added change switch" + mediaStream.toString());
             remoteVideoTrack = mediaStream.videoTracks.get(0);
             mRemoteVideoRenderer = new VideoRenderer(remoteView);
             remoteVideoTrack.addRenderer(mRemoteVideoRenderer);
@@ -479,22 +529,22 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
 
         @Override
         public void onRemoveStream(MediaStream mediaStream) {
-
+            Log.i(TAG, "remove stream change switch");
         }
 
         @Override
         public void onDataChannel(DataChannel dataChannel) {
-
+            Log.i(TAG, "data channel change switch");
         }
 
         @Override
         public void onRenegotiationNeeded() {
-            Log.i(TAG, "renegotiated");
+            Log.i(TAG, "renegotiated change switch");
         }
 
         @Override
         public void onAddTrack(RtpReceiver rtpReceiver, MediaStream[] mediaStreams) {
-
+            Log.i(TAG, "add track change switch");
         }
 
         // 如果成功创建Sdp观察者offer数据流，那么setLocalDescription && send SDP info
@@ -502,8 +552,8 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
         // SdpObserver
         @Override
         public void onCreateSuccess(SessionDescription sessionDescription) {
-            isOffer = true;
-            Log.i(TAG, "session description:");
+//            isOffer = true;
+            Log.i(TAG, "session description: change switch");
             // 如果是创建offer成功，这样毁掉
             peerConnection.setLocalDescription(this, sessionDescription);
             JSONObject jsonObject = new JSONObject();
@@ -514,23 +564,23 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
             } catch (JSONException e) {
                 e.printStackTrace();
             }
-            Log.i(TAG, "json obj:" + jsonObject);
+            // 自己的端描述信息
             mSocket.emit("SdpInfo", jsonObject);
         }
 
         @Override
         public void onSetSuccess() {
-
+            Log.i(TAG, "Set success change switch");
         }
 
         @Override
         public void onCreateFailure(String s) {
-
+            Log.i(TAG, "createFail change switch");
         }
 
         @Override
         public void onSetFailure(String s) {
-
+            Log.i(TAG, "set fail change switch");
         }
     }
 
@@ -589,6 +639,41 @@ public class OneToOneAVAct extends AppCompatActivity implements View.OnClickList
             case R.id.leave_room_bt:
                 // 离开房间
                 mSocket.emit("leave", roomId);
+                break;
+            case R.id.send_msg_bt:
+                if (mPeer == null) {
+                    mPeer = new Peer();
+                }
+                if (mDataChannel != null) {
+                    // 收发数据，这里用pc的datachannel试试
+                    mDataChannel = mPeer.peerConnection.createDataChannel("txt", new DataChannel.Init());
+                    mDataChannel.registerObserver(new DataChannel.Observer() {
+                        @Override
+                        public void onBufferedAmountChange(long l) {
+
+                        }
+
+                        @Override
+                        public void onStateChange() {
+
+                        }
+
+                        @Override
+                        public void onMessage(DataChannel.Buffer buffer) {
+                            ByteBuffer data = buffer.data;
+                            byte[] bytes = new byte[data.capacity()];
+                            data.get(bytes);
+                            String msg = new String(bytes);
+                            Toast.makeText(OneToOneAVAct.this, msg, Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+                byte[] msg = msgEdtText.getText().toString().getBytes();
+                DataChannel.Buffer buffer = new DataChannel.Buffer(
+                        ByteBuffer.wrap(msg),
+                        false);
+                mDataChannel.send(buffer);
+                Log.i(TAG, "data channel send msg");
                 break;
                 default:break;
         }
